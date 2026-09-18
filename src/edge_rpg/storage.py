@@ -1,74 +1,165 @@
-import json
-import sqlite3
-from pathlib import Path
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS world_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS player(id INTEGER PRIMARY KEY CHECK(id=1), hp INTEGER NOT NULL, xp INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS map_cells(
- cell_id TEXT PRIMARY KEY, state TEXT NOT NULL CHECK(state IN ('UNSEEN','DISCOVERING','EXPLORED','BLOCKED')),
- progress REAL NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 1), first_entered_at REAL, last_seen_at REAL,
- event_triggered INTEGER NOT NULL DEFAULT 0, event_id TEXT, blocked INTEGER NOT NULL DEFAULT 0,
- dwell REAL NOT NULL DEFAULT 0, movement REAL NOT NULL DEFAULT 0, landmark INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS scene_observations(id INTEGER PRIMARY KEY, cell_id TEXT NOT NULL REFERENCES map_cells(cell_id),
- timestamp REAL NOT NULL, fingerprint TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(cell_id,fingerprint));
-CREATE TABLE IF NOT EXISTS events(event_id TEXT PRIMARY KEY, cell_id TEXT NOT NULL UNIQUE REFERENCES map_cells(cell_id),
- type TEXT NOT NULL, archetype TEXT, status TEXT NOT NULL, created_at REAL NOT NULL, completed_at REAL, payload_json TEXT);
-CREATE TABLE IF NOT EXISTS event_log(id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp REAL NOT NULL,
- event_type TEXT NOT NULL, message TEXT NOT NULL, cell_id TEXT);
-CREATE TABLE IF NOT EXISTS quests(quest_id TEXT PRIMARY KEY, state TEXT NOT NULL, stage INTEGER NOT NULL DEFAULT 0,
- objective TEXT NOT NULL, target_cell TEXT NOT NULL, rewards TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS npcs(npc_id TEXT PRIMARY KEY, name TEXT NOT NULL, archetype TEXT NOT NULL, cell_id TEXT NOT NULL,
- relationship INTEGER NOT NULL DEFAULT 0, dialogue_state TEXT NOT NULL DEFAULT 'INTRO', quest_id TEXT REFERENCES quests(quest_id), alive INTEGER NOT NULL DEFAULT 1);
-CREATE TABLE IF NOT EXISTS npc_memory(npc_id TEXT PRIMARY KEY REFERENCES npcs(npc_id), facts_json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS items(item_id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS inventory(item_id TEXT PRIMARY KEY REFERENCES items(item_id), quantity INTEGER NOT NULL CHECK(quantity>=0));
-CREATE TABLE IF NOT EXISTS world_flags(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS exploration_totals(id INTEGER PRIMARY KEY CHECK(id=1), visited INTEGER NOT NULL DEFAULT 0, pending INTEGER NOT NULL DEFAULT 0, events_created INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX IF NOT EXISTS observations_cell ON scene_observations(cell_id);
+"""
+storage.py - SQLite 持久化資料庫層 (包含角色等級、XP、三維屬性自動遷移)
 """
 
+import sqlite3
+import json
+from typing import Dict, Any, List, Optional
 
-class Store:
-    def __init__(self, path, cfg):
-        if path != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA foreign_keys=ON")
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.executescript(SCHEMA)
-        with self.db:
-            mode = cfg['exploration'].get('mode', 'legacy_h3')
-            old_mode = self.one("SELECT value FROM world_meta WHERE key='exploration_mode'")
-            if mode == 'square_visits' and old_mode is None and self.one('SELECT 1 FROM map_cells LIMIT 1'):
-                raise ValueError('Existing legacy world: use a new database for square cells')
-            meta = {"schema_version": 1, "world_seed": cfg["world_seed"], "exploration_mode": mode}
-            if mode == 'square_visits':
-                meta.update(grid_projection='WGS84_CEA_lat_ts25_v1', cell_size_m=cfg['exploration']['cell_size_m'], cells_per_event=cfg['exploration']['cells_per_event'])
-            else:
-                meta['h3_resolution'] = cfg['exploration']['h3_resolution']
-            for k, v in meta.items():
-                row = self.one("SELECT value FROM world_meta WHERE key=?", (k,))
-                if row and row["value"] != str(v):
-                    raise ValueError(f"Existing world {k} differs; use a new database")
-                self.db.execute("INSERT OR IGNORE INTO world_meta VALUES (?,?)", (k,str(v)))
-            self.db.execute("INSERT OR IGNORE INTO exploration_totals(id) VALUES(1)")
-            self.db.execute("INSERT OR IGNORE INTO player(id,hp,xp) VALUES(1,?,0)", (cfg["rules"]["max_hp"],))
-            self.db.executemany("INSERT OR IGNORE INTO items VALUES (?,?)", [("herb","Trail herb"),("lost_charm","Traveler's charm")])
-            self.db.execute("INSERT OR REPLACE INTO settings VALUES ('config',?)", (json.dumps(cfg),))
+class WorldStorage:
+    def __init__(self, db_path: str = "data/world.db"):
+        self.db_path = db_path
+        self._init_tables()
 
-    def one(self, sql, args=()):
-        row = self.db.execute(sql,args).fetchone()
-        return dict(row) if row else None
+    def _get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        # FRDM-i.MX93 eMMC 優化：開啟 WAL 模式，避免 I/O 阻塞主線程
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        return conn
 
-    def all(self, sql, args=()):
-        return [dict(row) for row in self.db.execute(sql,args)]
+    def _init_tables(self):
+        with self._get_conn() as conn:
+            # 1. 玩家主表 (具備等級、XP、三維屬性)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS player (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1,
+                xp INTEGER NOT NULL DEFAULT 0,
+                hp INTEGER NOT NULL DEFAULT 100,
+                max_hp INTEGER NOT NULL DEFAULT 100,
+                stamina INTEGER NOT NULL DEFAULT 100,
+                max_stamina INTEGER NOT NULL DEFAULT 100,
+                perception INTEGER NOT NULL DEFAULT 10,
+                endurance INTEGER NOT NULL DEFAULT 10,
+                lore INTEGER NOT NULL DEFAULT 10,
+                skill_points INTEGER NOT NULL DEFAULT 0,
+                perks_json TEXT NOT NULL DEFAULT '[]'
+            );
+            """)
 
-    def log(self, now, kind, message, cell=None):
-        self.db.execute("INSERT INTO event_log(timestamp,event_type,message,cell_id) VALUES(?,?,?,?)", (now,kind,message,cell))
+            # 確保舊資料表無痛遷移至新欄位
+            existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(player);").fetchall()]
+            new_cols = {
+                "level": "INTEGER NOT NULL DEFAULT 1",
+                "xp": "INTEGER NOT NULL DEFAULT 0",
+                "hp": "INTEGER NOT NULL DEFAULT 100",
+                "max_hp": "INTEGER NOT NULL DEFAULT 100",
+                "stamina": "INTEGER NOT NULL DEFAULT 100",
+                "max_stamina": "INTEGER NOT NULL DEFAULT 100",
+                "perception": "INTEGER NOT NULL DEFAULT 10",
+                "endurance": "INTEGER NOT NULL DEFAULT 10",
+                "lore": "INTEGER NOT NULL DEFAULT 10",
+                "skill_points": "INTEGER NOT NULL DEFAULT 0",
+                "perks_json": "TEXT NOT NULL DEFAULT '[]'"
+            }
+            for col, col_type in new_cols.items():
+                if col not in existing_cols:
+                    conn.execute(f"ALTER TABLE player ADD COLUMN {col} {col_type};")
 
-    def close(self):
-        self.db.close()
+            # 2. 地圖格子表 (H3)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS map_cells (
+                cell_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                progress REAL NOT NULL DEFAULT 0,
+                first_entered_at INTEGER,
+                last_seen_at INTEGER,
+                event_triggered INTEGER NOT NULL DEFAULT 0,
+                event_id TEXT,
+                blocked INTEGER NOT NULL DEFAULT 0
+            );
+            """)
+
+            # 3. 事件持久化表
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                event_id TEXT PRIMARY KEY,
+                cell_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT,
+                status TEXT NOT NULL,
+                payload_json TEXT,
+                created_at INTEGER NOT NULL
+            );
+            """)
+
+            # 4. 世界旗標表 (因果連貫關鍵)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS world_flags (
+                key TEXT PRIMARY KEY,
+                val_json TEXT NOT NULL
+            );
+            """)
+
+            # 5. 事件日誌表
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS event_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                cell_id TEXT
+            );
+            """)
+
+            # 初始玩家紀錄
+            cur = conn.execute("SELECT id FROM player WHERE id = 'hero';")
+            if not cur.fetchone():
+                conn.execute("INSERT INTO player (id, name) VALUES ('hero', '探索者');")
+            conn.commit()
+
+    def get_player(self) -> Dict[str, Any]:
+        with self._get_conn() as conn:
+            row = conn.execute("SELECT * FROM player WHERE id = 'hero';").fetchone()
+            if row:
+                d = dict(row)
+                d["perks"] = json.loads(d.get("perks_json", "[]"))
+                return d
+            return {}
+
+    def update_player(self, data: Dict[str, Any]):
+        fields = []
+        vals = []
+        for k, v in data.items():
+            if k == "perks":
+                fields.append("perks_json = ?")
+                vals.append(json.dumps(v))
+            elif k != "id":
+                fields.append(f"{k} = ?")
+                vals.append(v)
+        vals.append("hero")
+        with self._get_conn() as conn:
+            conn.execute(f"UPDATE player SET {', '.join(fields)} WHERE id = ?;", vals)
+            conn.commit()
+
+    def get_world_flags(self) -> Dict[str, Any]:
+        flags = {}
+        with self._get_conn() as conn:
+            for r in conn.execute("SELECT key, val_json FROM world_flags;").fetchall():
+                flags[r["key"]] = json.loads(r["val_json"])
+        return flags
+
+    def set_world_flags(self, flags: Dict[str, Any]):
+        with self._get_conn() as conn:
+            for k, v in flags.items():
+                conn.execute(
+                    "INSERT INTO world_flags (key, val_json) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET val_json = excluded.val_json;",
+                    (k, json.dumps(v))
+                )
+            conn.commit()
+
+    def add_event_log(self, event_type: str, message: str, cell_id: str = ""):
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO event_log (timestamp, event_type, message, cell_id) VALUES (?, ?, ?, ?);",
+                (int(time.time()), event_type, message, cell_id)
+            )
+            conn.commit()
+
+    def get_recent_logs(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT * FROM event_log ORDER BY id DESC LIMIT ?;", (limit,)).fetchall()
+            return [dict(r) for r in rows]

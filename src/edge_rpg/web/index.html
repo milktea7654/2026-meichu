@@ -1,11 +1,62 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>林地誌 Fieldbound · 遊戲模擬器</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><a class="brand" href="/" aria-label="林地誌首頁"><span class="brand-icon">⌁</span><div>林地誌 <small>FIELDBOUND</small></div></a><nav aria-label="主要頁面"><button class="tab active" data-page="game">探索世界</button><button class="tab" data-page="database">SQLite 資料</button><button class="tab" data-page="generator">劇情生成</button></nav><span class="local"><i></i> GPS 格網 · 永久探索</span></header>
-<main><section class="heading"><div><div class="eyebrow">AN OUTDOOR EXPLORATION JOURNAL</div><h1>把走過的地方，變成你的故事。</h1><p>GPS 連結真實世界。走進新格、永久點亮，讓累積的足跡觸發故事。</p></div><div class="player"><span class="avatar">✦</span><div><strong>初行者</strong><span id="player-stats">HP 100 · XP 0</span></div></div></section>
-<div class="simbar"><span class="badge">定位來源</span><label><select id="gps-mode"><option value="simulation">模擬試走</option><option value="browser">裝置 GPS</option><option value="bridge">Android GPS Bridge</option></select></label><label>環境條件 <select id="condition"><option value="normal">正常戶外</option><option value="indoor">室內場景</option><option value="inaccurate">GPS 誤差過大</option><option value="camera_off">相機不可用</option><option value="disconnected">GPS 中斷</option></select></label><span class="sim-note">真實底圖 · 模擬與 GPS 存檔分開</span><button class="text-button" id="reload">↻ 重新讀取存檔</button></div>
-<section id="game" class="page active"><div class="game-grid"><aside class="locations card"><div class="section-label">探索路線 <span>01 — 04</span></div><h2>下一站，往哪裡？</h2><div id="zones"></div><div class="route-note"><span>↗</span><p>點選地點模擬移動。<br>重返已點亮格子，不會重複計數。</p></div><div class="quest-mini"><div class="section-label">隨身任務</div><strong id="quest-name">尚未接下任務</strong><p id="quest-hint">新的相遇，往往就在下一段路上。</p><div id="bag"></div></div></aside>
-<div class="map-column"><div class="map-card"><div class="map-title"><div><span class="eyebrow">FIELD MAP / 01</span><h2>真實世界探索圖</h2></div><span class="map-tag">2500 m² / 格</span></div><canvas id="map" aria-label="真實地圖上的固定面積格網"></canvas><div id="tile-status" role="status"></div><div class="map-legend"><span><i class="dot green"></i> 你的位置</span><span><i class="dot amber"></i> 事件</span><span><i class="dot gray"></i> 尚未探索</span><a class="scale" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div></div><div class="progress-card card"><div class="progress-top"><div><span class="eyebrow">EXPLORATION</span><h3 id="current-zone">林間步道</h3></div><div><strong id="progress">0%</strong><span class="threshold"> / 6 格觸發 EVENT</span></div></div><div class="progress-track"><div id="progress-fill"></div><span></span></div><div class="components" id="components"></div><div class="walk-row"><span id="status">正在探索</span><button class="text-button" id="back">← 走回上一格</button><button class="primary" id="walk">走進下一格 →</button></div></div></div>
-<aside class="encounter card"><div class="section-label">當前故事 <span id="event-label">尚待發現</span></div><div class="story-art" aria-hidden="true"><svg viewBox="0 0 300 150"><circle cx="231" cy="35" r="24" fill="#dfcc92"/><path d="M0 129L66 48L119 109L179 59L264 137Z" fill="#ccd6c4"/><path d="M35 150L110 61L159 104L203 83L300 150Z" fill="#9faf99"/><path d="M140 150Q157 109 177 118Q151 128 177 150" fill="#f0e8d6"/><path d="M44 146V77M44 84L24 113H64ZM44 102L17 136H72" fill="#466659" stroke="#466659" stroke-width="3"/><path d="M240 146V100M240 104L222 128H258" fill="#466659" stroke="#466659" stroke-width="3"/><circle cx="161" cy="117" r="6" fill="#bd8b5a"/><path d="M156 124L151 140H168L165 124Z" fill="#314b40"/><path d="M156 139L154 150M164 139L168 150" stroke="#314b40" stroke-width="3"/></svg></div><div class="story-body"><div class="eyebrow" id="story-kicker">THE UNWRITTEN PATH</div><h2 id="story-title">每條路，都有尚未寫下的故事。</h2><p id="story-text"></p><div class="speech" id="message" role="status" aria-live="polite"></div><div class="actions"><button data-command="TALK">交談</button><button data-command="INSPECT">調查</button><button data-command="ACCEPT">接受任務</button><button data-command="REFUSE">婉拒</button></div><button class="text-button leave" data-command="LEAVE">結束交談 ↗</button></div><div class="persist-note"><i></i> 世界狀態會保存於本機 SQLite</div></aside></div>
-<div class="journal card"><div><span class="eyebrow">TRAVEL NOTES</span><h3>沿途手記</h3></div><div id="journal"></div><button class="text-button" data-open="database">查看原始紀錄 ↗</button></div></section>
-<section id="database" class="page"><div class="page-intro"><div><span class="eyebrow">A WORLD THAT REMEMBERS</span><h2>你做的每個選擇，都有資料留下。</h2><p>這些是目前 SQLite 的實際查詢結果；每張表最多顯示最近 100 筆。</p></div><span class="read-only">唯讀資料檢視</span></div><div class="db-stats" id="db-stats"></div><div class="db-layout"><aside class="card table-list" id="tables"></aside><article class="card db-content"><div class="db-title"><h3 id="table-name"></h3><span id="row-count"></span></div><code id="sql"></code><div class="table-scroll"><table><thead id="table-head"></thead><tbody id="table-body"></tbody></table><div id="empty-table" class="empty" hidden>這張表目前沒有資料。回到探索世界，完成一次互動再看看。</div></div><details><summary>檢視選取資料的完整 JSON</summary><pre id="row-detail">點選表格中的一列查看。</pre></details></article></div><div class="db-foot"><strong>一次交易，保存整段相遇。</strong><p>首次進格立即標記 EXPLORED 並增加 exploration_totals。達到新格門檻時，事件、NPC／任務、計數扣除在同一筆交易完成。events.cell_id 的 UNIQUE 限制，阻止同格重複建立探索事件。</p><code id="db-path"></code></div></section>
-<section id="generator" class="page"><div class="page-intro"><div><span class="eyebrow">REALITY → RULES → STORY</span><h2>這段故事，是怎麼出現的？</h2><p>新格數達門檻後使用「可選環境映射＋有種子的事件抽選＋劇情模板」，沒有呼叫雲端或 LLM。</p></div><button class="text-button" data-open="game">返回探索 ↗</button></div><div class="pipeline"><article class="card"><span class="step">01 / 觀察</span><h3>相機看見什麼</h3><p id="observation-note">這裡以模擬資料代替相機輸出。</p><pre id="observation"></pre></article><article class="card"><span class="step">02 / 映射</span><h3>現實轉成 RPG 情境</h3><p>只採用信心值足夠的環境線索。</p><pre id="context"></pre><div class="context-note">樹木 → 森林步道<br>河川／橋 → 水岸<br>石像 → 古老地標</div></article><article class="card"><span class="step">03 / 選擇</span><h3>可重現的事件抽選</h3><div id="weights"></div><div class="seed" id="seed"></div></article></div><div class="generation-result card"><div><span class="step">04 / 保存與敘述</span><h2 id="generated-title"></h2><p id="generated-description"></p><div class="result-tags"><span>每 N 個新格觸發一次</span><span>SQLite 保存真相</span><span>模板負責敘述</span></div></div><pre id="generated-event"></pre></div><p class="generator-note">切換環境會影響未探索格的候選事件。已生成的事件直接讀取 SQLite，不重新抽選。日後加入的小型 LLM 只能改寫 NPC 台詞，不能決定獎勵或修改世界。</p></section>
-<footer><span>FIELDBOUND / 本機遊戲模擬器</span><span id="save-state">正在連線…</span></footer><div id="error" role="alert" hidden></div></main><script src="/app.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FieldBound RPG - 戶外實境探索</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div id="app">
+    <!-- 頂部 HUD：角色等級、XP 與天氣 -->
+    <header id="top-hud">
+      <div class="player-badge">
+        <div class="avatar">🧭</div>
+        <div class="player-info">
+          <div class="name-level">
+            <span id="player-name">探索者</span>
+            <span id="player-level" class="badge">Lv.1</span>
+          </div>
+          <div class="xp-bar-container">
+            <div id="xp-bar" class="xp-bar" style="width: 0%;"></div>
+          </div>
+          <div class="xp-text"><span id="current-xp">0</span> / <span id="needed-xp">100</span> XP</div>
+        </div>
+      </div>
+
+      <div class="weather-badge" id="weather-badge">
+        <span id="weather-icon">☀️</span>
+        <div class="weather-text">
+          <span id="weather-name">晴朗</span>
+          <span id="weather-temp">28°C</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 地圖主畫布 (Leaflet 支援 2.5D 與 H3 迷霧) -->
+    <main id="map-container">
+      <div id="map"></div>
+    </main>
+
+    <!-- 底部互動面板：事件日誌與行動卡片 -->
+    <footer id="bottom-panel">
+      <div class="card event-card" id="event-card">
+        <h3 id="event-title">等待探索中...</h3>
+        <p id="event-desc">攜帶裝置在戶外安全區域走動，抵達未探索格子將觸發特殊境遇。</p>
+        <div id="event-actions" class="action-buttons"></div>
+      </div>
+
+      <div class="card log-card">
+        <h4>冒險紀實</h4>
+        <ul id="log-list">
+          <li>系統初始化完畢，等待 GPS 訊號定位...</li>
+        </ul>
+      </div>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
