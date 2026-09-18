@@ -4,12 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FieldBound RPG - 戶外實境探索</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
   <div id="app">
-    <!-- 頂部 HUD：角色等級、XP 與天氣 -->
     <header id="top-hud">
       <div class="player-badge">
         <div class="avatar">🧭</div>
@@ -34,29 +32,26 @@
       </div>
     </header>
 
-    <!-- 地圖主畫布 (Leaflet 支援 2.5D 與 H3 迷霧) -->
+    <!-- 主地圖容器：自帶 Zero-Internet 向量 Canvas 引擎 -->
     <main id="map-container">
-      <div id="map"></div>
+      <canvas id="offline-canvas-map"></canvas>
     </main>
 
-    <!-- 底部互動面板：事件日誌與行動卡片 -->
     <footer id="bottom-panel">
       <div class="card event-card" id="event-card">
-        <h3 id="event-title">等待探索中...</h3>
-        <p id="event-desc">攜帶裝置在戶外安全區域走動，抵達未探索格子將觸發特殊境遇。</p>
+        <h3 id="event-title">冒險準備中...</h3>
+        <p id="event-desc">攜帶裝置在戶外安全區域探索，累積進度將驅散迷霧並發現境遇。</p>
         <div id="event-actions" class="action-buttons"></div>
       </div>
 
       <div class="card log-card">
         <h4>冒險紀實</h4>
         <ul id="log-list">
-          <li>系統初始化完畢，等待 GPS 訊號定位...</li>
+          <li>系統初始化完畢，離線 2.5D 引擎就緒。</li>
         </ul>
       </div>
     </footer>
   </div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

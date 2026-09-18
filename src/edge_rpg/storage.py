@@ -1,10 +1,11 @@
 """
-storage.py - SQLite 持久化資料庫層 (包含角色等級、XP、三維屬性自動遷移)
+storage.py - SQLite 持久化層 (WAL模式, 10s 超時防鎖死, 角色成長自動遷移)
 """
 
 import sqlite3
 import json
-from typing import Dict, Any, List, Optional
+import time
+from typing import Dict, Any, List
 
 class WorldStorage:
     def __init__(self, db_path: str = "data/world.db"):
@@ -12,16 +13,16 @@ class WorldStorage:
         self._init_tables()
 
     def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        # timeout=10.0 防止多線程寫入拋出 database is locked
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
-        # FRDM-i.MX93 eMMC 優化：開啟 WAL 模式，避免 I/O 阻塞主線程
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
         return conn
 
     def _init_tables(self):
         with self._get_conn() as conn:
-            # 1. 玩家主表 (具備等級、XP、三維屬性)
             conn.execute("""
             CREATE TABLE IF NOT EXISTS player (
                 id TEXT PRIMARY KEY,
@@ -40,26 +41,20 @@ class WorldStorage:
             );
             """)
 
-            # 確保舊資料表無痛遷移至新欄位
-            existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(player);").fetchall()]
+            # 自動欄位平滑遷移
+            existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(player);").fetchall()]
             new_cols = {
-                "level": "INTEGER NOT NULL DEFAULT 1",
-                "xp": "INTEGER NOT NULL DEFAULT 0",
-                "hp": "INTEGER NOT NULL DEFAULT 100",
-                "max_hp": "INTEGER NOT NULL DEFAULT 100",
-                "stamina": "INTEGER NOT NULL DEFAULT 100",
-                "max_stamina": "INTEGER NOT NULL DEFAULT 100",
-                "perception": "INTEGER NOT NULL DEFAULT 10",
-                "endurance": "INTEGER NOT NULL DEFAULT 10",
-                "lore": "INTEGER NOT NULL DEFAULT 10",
-                "skill_points": "INTEGER NOT NULL DEFAULT 0",
+                "level": "INTEGER NOT NULL DEFAULT 1", "xp": "INTEGER NOT NULL DEFAULT 0",
+                "hp": "INTEGER NOT NULL DEFAULT 100", "max_hp": "INTEGER NOT NULL DEFAULT 100",
+                "stamina": "INTEGER NOT NULL DEFAULT 100", "max_stamina": "INTEGER NOT NULL DEFAULT 100",
+                "perception": "INTEGER NOT NULL DEFAULT 10", "endurance": "INTEGER NOT NULL DEFAULT 10",
+                "lore": "INTEGER NOT NULL DEFAULT 10", "skill_points": "INTEGER NOT NULL DEFAULT 0",
                 "perks_json": "TEXT NOT NULL DEFAULT '[]'"
             }
-            for col, col_type in new_cols.items():
+            for col, col_def in new_cols.items():
                 if col not in existing_cols:
-                    conn.execute(f"ALTER TABLE player ADD COLUMN {col} {col_type};")
+                    conn.execute(f"ALTER TABLE player ADD COLUMN {col} {col_def};")
 
-            # 2. 地圖格子表 (H3)
             conn.execute("""
             CREATE TABLE IF NOT EXISTS map_cells (
                 cell_id TEXT PRIMARY KEY,
@@ -73,7 +68,6 @@ class WorldStorage:
             );
             """)
 
-            # 3. 事件持久化表
             conn.execute("""
             CREATE TABLE IF NOT EXISTS events (
                 event_id TEXT PRIMARY KEY,
@@ -86,7 +80,18 @@ class WorldStorage:
             );
             """)
 
-            # 4. 世界旗標表 (因果連貫關鍵)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS quests (
+                quest_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                stage INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'ACTIVE',
+                target_cell TEXT,
+                description TEXT,
+                rewards_json TEXT
+            );
+            """)
+
             conn.execute("""
             CREATE TABLE IF NOT EXISTS world_flags (
                 key TEXT PRIMARY KEY,
@@ -94,7 +99,6 @@ class WorldStorage:
             );
             """)
 
-            # 5. 事件日誌表
             conn.execute("""
             CREATE TABLE IF NOT EXISTS event_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +109,6 @@ class WorldStorage:
             );
             """)
 
-            # 初始玩家紀錄
             cur = conn.execute("SELECT id FROM player WHERE id = 'hero';")
             if not cur.fetchone():
                 conn.execute("INSERT INTO player (id, name) VALUES ('hero', '探索者');")
@@ -121,8 +124,7 @@ class WorldStorage:
             return {}
 
     def update_player(self, data: Dict[str, Any]):
-        fields = []
-        vals = []
+        fields, vals = [], []
         for k, v in data.items():
             if k == "perks":
                 fields.append("perks_json = ?")
@@ -134,6 +136,11 @@ class WorldStorage:
         with self._get_conn() as conn:
             conn.execute(f"UPDATE player SET {', '.join(fields)} WHERE id = ?;", vals)
             conn.commit()
+
+    def get_active_quests(self) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            rows = conn.execute("SELECT * FROM quests WHERE status = 'ACTIVE';").fetchall()
+            return [dict(r) for r in rows]
 
     def get_world_flags(self) -> Dict[str, Any]:
         flags = {}

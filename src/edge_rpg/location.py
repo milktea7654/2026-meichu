@@ -1,99 +1,81 @@
+"""
+location.py - GPS 校驗、平滑濾波與 H3 邊界遲滯保護 (Anti-Ping-Pong)
+"""
+
+import time
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
-from collections import deque
-import math
-from .geo import distance
 
-
-@dataclass(frozen=True)
-class Fix:
+@dataclass
+class LocationPacket:
     latitude: float
     longitude: float
     accuracy_m: float
-    speed_mps: float
-    timestamp_ms: float
-    received: float
-    eligible: bool
+    speed_mps: float = 0.0
+    heading_deg: float = 0.0
+    timestamp_ms: int = 0
 
-    @property
-    def point(self):
-        return self.latitude, self.longitude
+class HysteresisCellTracker:
+    """防止玩家在相鄰 H3 格子邊界時因 GPS 抖動產生反覆橫跳 (Ping-Pong)"""
+    def __init__(self, min_consecutive_hits: int = 3, dwell_time_sec: float = 2.0):
+        self.current_cell: Optional[str] = None
+        self.candidate_cell: Optional[str] = None
+        self.candidate_count: int = 0
+        self.first_candidate_time: float = 0.0
+        self.min_consecutive_hits = min_consecutive_hits
+        self.dwell_time_sec = dwell_time_sec
 
+    def update_cell(self, raw_cell_id: str) -> str:
+        now = time.time()
+        if not self.current_cell:
+            self.current_cell = raw_cell_id
+            return raw_cell_id
 
-class LocationFilter:
-    def __init__(self, config):
-        self.cfg = config
-        self.last_raw = None
-        self.last = None
-        self.status = "WAIT_FOR_PHONE_GPS"
-        self.latest_timestamp = -1
-        self.usable = False
-        self.trajectory = deque()
+        if raw_cell_id == self.current_cell:
+            self.candidate_cell = None
+            self.candidate_count = 0
+            return self.current_cell
 
-    def reject(self, reason):
-        self.status = reason
-        self.usable = False
-        return None
+        # 檢測到候選新格子
+        if raw_cell_id != self.candidate_cell:
+            self.candidate_cell = raw_cell_id
+            self.candidate_count = 1
+            self.first_candidate_time = now
+        else:
+            self.candidate_count += 1
 
-    def accept(self, packet, now):
-        c = self.cfg
-        try:
-            if not isinstance(packet, dict) or packet.get("type") != "location":
-                return self.reject("GPS_INVALID_PACKET")
-            keys = ("latitude", "longitude", "accuracy_m", "timestamp_ms")
-            if any(isinstance(packet[k], bool) or not isinstance(packet[k], (int, float)) or not math.isfinite(packet[k]) for k in keys):
-                return self.reject("GPS_INVALID_PACKET")
-            lat, lon, acc, ts = (packet[k] for k in keys)
-            speed = packet.get("speed_mps", 0)
-            if isinstance(speed, bool) or not isinstance(speed, (float, int)) or not math.isfinite(speed) or speed < 0:
-                return self.reject("GPS_INVALID_PACKET")
-            if not -90 <= lat <= 90 or not -180 <= lon <= 180 or acc < 0:
-                return self.reject("GPS_INVALID_PACKET")
-            for key, limit in (("heading_deg", 360),):
-                if key in packet and (not isinstance(packet[key], (float, int)) or not math.isfinite(packet[key]) or not 0 <= packet[key] < limit):
-                    return self.reject("GPS_INVALID_PACKET")
-            age = now - ts / 1000
-            if age > c["stale_sec"] or age < -c["future_tolerance_sec"] or ts <= self.latest_timestamp:
-                return self.reject("GPS_INVALID_TIMESTAMP")
-            self.latest_timestamp = ts
-            if acc > c["gps_display_accuracy_m"]:
-                return self.reject("GPS_INVALID_ACCURACY")
-            raw = (lat, lon)
-            fresh = self.last is not None and now - self.last.received < c["stale_sec"]
-            if self.last_raw is not None:
-                oldpoint, oldts, oldacc = self.last_raw
-                dt = (ts-oldts)/1000
-                d = distance(oldpoint, raw)
-                if d > c["max_jump_speed_mps"] * dt + max(acc, oldacc):
-                    return self.reject("GPS_JUMP")
-                if fresh:
-                    speed = max(speed, max(0, d - max(acc, oldacc)) / dt)
-            self.last_raw = raw, ts, acc
-            if not fresh:
-                self.trajectory.clear()
-            self.trajectory.append((ts, raw, acc))
-            while self.trajectory and ts-self.trajectory[0][0] > c['speed_window_sec']*1000:
-                self.trajectory.popleft()
-            # Infer sustained motion even when optional phone speed is absent.
-            # A window is less sensitive to jitter than adding every GPS displacement.
-            if len(self.trajectory) > 1:
-                first_ts, first_point, first_accuracy = self.trajectory[0]
-                noise = max(c['movement_noise_floor_m'], max(acc, first_accuracy)*c['accuracy_noise_factor'])
-                speed = max(speed, max(0, distance(first_point, raw)-noise)/((ts-first_ts)/1000))
-            if fresh:
-                alpha = c["smoothing_alpha"]
-                lat = alpha*lat + (1-alpha)*self.last.latitude
-                lon = alpha*lon + (1-alpha)*self.last.longitude
-            eligible = acc <= c["gps_valid_accuracy_m"] and speed <= c["max_exploration_speed_mps"]
-            self.last = Fix(lat, lon, acc, speed, ts, now, eligible)
-            self.usable = eligible
-            self.status = "READY" if eligible else "GPS_DISPLAY_ONLY"
-            return self.last
-        except (KeyError, TypeError, ValueError, OverflowError):
-            return self.reject("GPS_INVALID_PACKET")
+        # 同時滿足連續次數與駐留時間才確認切換
+        if (self.candidate_count >= self.min_consecutive_hits and 
+            (now - self.first_candidate_time) >= self.dwell_time_sec):
+            self.current_cell = self.candidate_cell
+            self.candidate_cell = None
+            self.candidate_count = 0
 
-    def fresh(self, now):
-        if self.last is None or now-self.last.received >= self.cfg["stale_sec"] or now-self.last.timestamp_ms/1000 >= self.cfg["stale_sec"]:
-            self.status = "GPS_STALE"
-            self.usable = False
-            return False
-        return self.usable
+        return self.current_cell
+
+class LocationValidator:
+    def __init__(self, max_acc: float = 15.0, display_acc: float = 25.0, max_speed: float = 2.5):
+        self.max_acc = max_acc
+        self.display_acc = display_acc
+        self.max_speed = max_speed
+        self.last_valid_packet: Optional[LocationPacket] = None
+
+    def validate(self, pkt: LocationPacket) -> Dict[str, Any]:
+        """驗證 GPS 狀態 (VALID, DISPLAY_ONLY, INVALID)"""
+        now_ms = int(time.time() * 1000)
+        # 1. 檢查時戳 (不得延遲超過 10 秒)
+        if abs(now_ms - pkt.timestamp_ms) > 10000 and pkt.timestamp_ms != 0:
+            return {"status": "INVALID", "reason": "TIMESTAMP_EXPIRED"}
+
+        # 2. 精度檢查
+        if pkt.accuracy_m > self.display_acc:
+            return {"status": "INVALID", "reason": "POOR_ACCURACY"}
+        if pkt.accuracy_m > self.max_acc:
+            return {"status": "DISPLAY_ONLY", "reason": "MODERATE_ACCURACY"}
+
+        # 3. 速度限制 (防止乘車刷地圖)
+        if pkt.speed_mps > self.max_speed:
+            return {"status": "DISPLAY_ONLY", "reason": "SPEED_TOO_HIGH"}
+
+        self.last_valid_packet = pkt
+        return {"status": "VALID", "reason": "OK"}
