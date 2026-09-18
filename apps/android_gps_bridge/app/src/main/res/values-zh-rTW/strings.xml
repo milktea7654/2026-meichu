@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">板端 GPS 橋接器</string>
+    <string name="heading">FRDM GPS 橋接器\n請將開發板連接至手機熱點。\n探索時請保持此畫面開啟。</string>
+    <string name="address_hint">ws://BOARD_IP:8765/location</string>
+    <string name="optional_token">共用存取碼（選填）</string>
+    <string name="start">開始傳送 GPS</string>
+    <string name="stop">停止</string>
+    <string name="initial_status">已停止。GPS 資料只傳送至區域網路內的開發板。</string>
+    <string name="url_help">請使用手機熱點中的 ws://BOARD_IP:8765/location 位址。</string>
+    <string name="gps_error">無法使用 GPS：%1$s</string>
+    <string name="connecting">正在連接開發板…</string>
+    <string name="connected">已連線，正在等待新的 GNSS 定位…</string>
+    <string name="invalid_url">開發板位址格式無效。</string>
+    <string name="reconnecting">連線中斷，正在重新連接…</string>
+    <string name="gps_status">GPS %1$.6f, %2$.6f\n定位誤差 %3$.1f 公尺\n正在傳送至開發板</string>
+    <string name="invalid_fix">GNSS 定位資料無效。</string>
+    <string name="enable_location">請在 Android 設定中開啟 GPS 定位。</string>
+    <string name="permission_required">需要授予精確位置權限。</string>
+    <string name="stopped">已停止。</string>
+</resources>

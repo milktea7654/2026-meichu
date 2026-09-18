@@ -1,0 +1,16 @@
+[Unit]
+Description=Fieldbound offline outdoor RPG
+After=network.target graphical.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/fieldbound
+Environment=PYTHONUNBUFFERED=1
+# Set SDL_VIDEODRIVER, WAYLAND_DISPLAY, XDG_RUNTIME_DIR for your BSP session.
+ExecStart=/opt/fieldbound/.venv/bin/python -m edge_rpg.app --config /opt/fieldbound/config/game.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=graphical.target

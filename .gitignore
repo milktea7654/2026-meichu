@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.db
+*.db-wal
+*.db-shm
+*.mbtiles
+*.tflite
+*.gguf
+*.onnx
+.gradle/
+build/
+local.properties

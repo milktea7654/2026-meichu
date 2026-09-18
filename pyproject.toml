@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-exploration-rpg"
+version = "0.1.0"
+description = "Offline FRDM-i.MX93 outdoor exploration RPG"
+requires-python = ">=3.11"
+dependencies = ["pyproj>=3.6,<4", "h3>=4.2,<5", "PyYAML>=6,<7", "websockets>=15,<18", "pygame-ce>=2.5,<3", "numpy>=1.26,<3", "Pillow>=10,<13"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+camera = ["opencv-python-headless>=4.8,<5"]
+
+[project.scripts]
+edge-rpg = "edge_rpg.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+edge_rpg = ["web/*.html", "web/*.css", "web/*.js"]

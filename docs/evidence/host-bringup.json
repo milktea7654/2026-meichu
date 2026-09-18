@@ -1,0 +1,30 @@
+{
+  "architecture": "x86_64",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "camera": false,
+  "ethosu": [],
+  "delegate": false,
+  "display": {
+    "DISPLAY": ":0",
+    "WAYLAND_DISPLAY": "wayland-0",
+    "drm": []
+  },
+  "meminfo": [
+    "MemTotal:       32777364 kB",
+    "MemFree:        28928532 kB",
+    "MemAvailable:   29537880 kB"
+  ],
+  "h3": true,
+  "pygame": true,
+  "yaml": true,
+  "websockets": true,
+  "cv2": false,
+  "tflite_runtime": false,
+  "network": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "Cannot open netlink socket: Operation not permitted\n"
+  },
+  "audio_devices": "[Errno 2] No such file or directory: 'arecord'",
+  "sqlite": true
+}

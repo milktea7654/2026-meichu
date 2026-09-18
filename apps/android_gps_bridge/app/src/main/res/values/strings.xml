@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Board GPS Bridge</string>
+    <string name="heading">FRDM GPS Bridge\nConnect the board to your phone hotspot.\nKeep this screen open while exploring.</string>
+    <string name="address_hint">ws://BOARD_IP:8765/location</string>
+    <string name="optional_token">Shared token (optional)</string>
+    <string name="start">Start GPS bridge</string>
+    <string name="stop">Stop</string>
+    <string name="initial_status">Stopped. GPS remains on your local network.</string>
+    <string name="url_help">Use ws://BOARD_IP:8765/location on your local hotspot.</string>
+    <string name="gps_error">GPS unavailable: %1$s</string>
+    <string name="connecting">Connecting to board…</string>
+    <string name="connected">Connected. Waiting for a fresh GNSS fix…</string>
+    <string name="invalid_url">Invalid board URL.</string>
+    <string name="reconnecting">Disconnected. Reconnecting…</string>
+    <string name="gps_status">GPS %1$.6f, %2$.6f\nAccuracy %3$.1f m\nSending to board</string>
+    <string name="invalid_fix">Invalid GNSS sample.</string>
+    <string name="enable_location">Enable GPS location in Android settings.</string>
+    <string name="permission_required">Precise location permission is needed.</string>
+    <string name="stopped">Stopped.</string>
+</resources>

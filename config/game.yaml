@@ -1,0 +1,91 @@
+world_seed: 12345
+database: data/world-grid.db
+network:
+  host: 0.0.0.0
+  port: 8765
+  token: ''  # Set a shared secret for a shared Wi-Fi network.
+location:
+  gps_valid_accuracy_m: 15
+  gps_display_accuracy_m: 25
+  max_exploration_speed_mps: 2.5
+  stale_sec: 5
+  future_tolerance_sec: 2
+  max_jump_speed_mps: 12
+  smoothing_alpha: 0.65
+  movement_noise_floor_m: 3
+  accuracy_noise_factor: 0.5
+  speed_window_sec: 5
+exploration:
+  mode: square_visits
+  cell_size_m: 50
+  cells_per_event: 6
+  # Legacy H3 scoring below is only used by mode: legacy_h3.
+  h3_resolution: 11
+  event_threshold: 0.70
+  dwell_target_sec: 30
+  movement_target_m: 25
+  max_sample_gap_sec: 2
+  observation_target: 4
+  weights: [0.35, 0.35, 0.20, 0.10]
+safety:
+  require_allowed_area: false
+  allowed: data/allowed_areas.geojson
+  blocked: data/blocked_areas.geojson
+  indoor_threshold: 0.65
+  outdoor_only: true
+vision:
+  enabled: true
+  camera: /dev/video0
+  fps: 2
+  analysis_duration_sec: 8
+  retry_sec: 15
+  confidence: 0.65
+  observation_max_age_sec: 5
+  frame_difference: 0.12
+  max_saved_observations: 16
+  delegate: /usr/lib/libethosu_delegate.so
+  classifier: models/vision/scene_vela.tflite
+  classifier_labels: models/vision/scenes.txt
+  detector: models/vision/detector_vela.tflite
+  detector_labels: models/vision/objects.txt
+  input_scale: 0.00392156862745098
+  input_offset: 0
+  detector_outputs: {boxes: 0, classes: 1, scores: 2, count: 3}
+  detector_class_offset: 0
+  width: 640
+  height: 480
+audio:
+  enabled: false
+  device: default
+  sample_rate: 16000
+  vad_rms: 450
+  silence_sec: 0.6
+  max_segment_sec: 5
+  command: [] # Local ASR CLI argv; use {wav} for the input WAV path.
+  timeout_sec: 8
+dialogue:
+  llm_enabled: false
+  executable: llama-cli
+  model: models/text/model.gguf
+  max_context: 1024
+  max_output_tokens: 64
+  timeout_sec: 8
+  min_available_mb: 200
+ui:
+  width: 1280
+  height: 720
+  fps: 30
+  zoom: 18
+  tiles: assets/map/area.mbtiles
+  font: ''
+  log_entries: 12
+  tile_cache: 128
+  start_lat: 24.796
+  start_lon: 120.996
+rules:
+  quest_xp: 50
+  resource_quantity: 1
+  combat_damage: 12
+  combat_xp: 20
+  rest_heal: 20
+  max_hp: 100
